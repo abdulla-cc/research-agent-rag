@@ -1,3 +1,5 @@
 requests
 feedparser
 pypdf
+sentence-transformers
+chromadb
