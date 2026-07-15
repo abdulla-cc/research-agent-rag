@@ -3,3 +3,4 @@ feedparser
 pypdf
 sentence-transformers
 chromadb
+google-genai
