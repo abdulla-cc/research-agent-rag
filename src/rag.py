@@ -9,7 +9,7 @@ load_dotenv()  # reads .env, makes GEMINI_API_KEY available
 DB_DIR = "data/chroma"
 COLLECTION_NAME = "papers"
 EMBED_MODEL = "all-MiniLM-L6-v2"
-LLM_MODEL = "gemini-flash-latest"
+LLM_MODEL = "gemini-3.5-flash"
 TOP_K = 5
 
 # load these ONCE at import, not per-request (expensive to load)
