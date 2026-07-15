@@ -6,11 +6,20 @@ from dotenv import load_dotenv
 
 load_dotenv()  # reads .env, makes GEMINI_API_KEY available
 
-DB_DIR = "data/chroma"
+# anchor paths to the project root (parent of this src/ folder) so
+# the code works no matter which directory you launch it from
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_HERE)
+DB_DIR = os.path.join(_PROJECT_ROOT, "data", "chroma")
 COLLECTION_NAME = "papers"
 EMBED_MODEL = "all-MiniLM-L6-v2"
 LLM_MODEL = "gemini-3.5-flash"
 TOP_K = 5
+
+
+class LLMUnavailableError(Exception):
+    """Raised when the LLM provider is temporarily unavailable (e.g. 503)."""
+    pass
 
 # load these ONCE at import, not per-request (expensive to load)
 _embedder = SentenceTransformer(EMBED_MODEL)
@@ -61,11 +70,16 @@ def answer_question(query, k=TOP_K):
     chunks = retrieve(query, k)
     prompt = build_prompt(query, chunks)
 
-    response = _client.models.generate_content(
-        model=LLM_MODEL,
-        contents=prompt,
-    )
-    answer = response.text
+    try:
+        response = _client.models.generate_content(
+            model=LLM_MODEL,
+            contents=prompt,
+        )
+        answer = response.text
+    except Exception as e:
+        # provider errors (503 high-demand, 429 rate limit, network) bubble
+        # up as a clean, catchable error instead of a raw stack trace
+        raise LLMUnavailableError(str(e))
 
     return {
         "query": query,
