@@ -6,3 +6,4 @@ chromadb
 google-genai
 fastapi
 uvicorn[standard]
+tenacity

@@ -3,6 +3,7 @@ import chromadb
 from sentence_transformers import SentenceTransformer
 from google import genai
 from dotenv import load_dotenv
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 load_dotenv()  # reads .env, makes GEMINI_API_KEY available
 
@@ -64,6 +65,22 @@ ANSWER:"""
     return prompt
 
 
+@retry(
+    retry=retry_if_exception_type(Exception),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    reraise=True,
+)
+def _call_llm(prompt):
+    """Call Gemini with automatic retries on transient failures.
+    Retries up to 3 times with exponential backoff (2s, 4s, ...)."""
+    response = _client.models.generate_content(
+        model=LLM_MODEL,
+        contents=prompt,
+    )
+    return response.text
+
+
 def answer_question(query, k=TOP_K):
     """Full RAG pipeline: retrieve -> build prompt -> call LLM -> return answer.
     This is the single entry point FastAPI will call next week."""
@@ -71,14 +88,9 @@ def answer_question(query, k=TOP_K):
     prompt = build_prompt(query, chunks)
 
     try:
-        response = _client.models.generate_content(
-            model=LLM_MODEL,
-            contents=prompt,
-        )
-        answer = response.text
+        answer = _call_llm(prompt)  # retries transient failures automatically
     except Exception as e:
-        # provider errors (503 high-demand, 429 rate limit, network) bubble
-        # up as a clean, catchable error instead of a raw stack trace
+        # after all retries exhausted, surface a clean, catchable error
         raise LLMUnavailableError(str(e))
 
     return {
