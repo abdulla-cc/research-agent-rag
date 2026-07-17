@@ -1,6 +1,6 @@
 # Research Agent — RAG over arXiv papers
 
-A retrieval-augmented generation (RAG) system that answers questions about a corpus of arXiv papers on RAG itself, returning cited answers grounded in the source papers. Built end-to-end: data pipeline, retrieval, LLM generation, a production API, a web frontend, and cloud deployment.
+A retrieval-augmented generation (RAG) system that answers questions about a corpus of arXiv papers on RAG itself, returning cited answers grounded in the source papers. Built end-to-end: data pipeline, retrieval, LLM generation, an *agentic* layer, a production API, a web frontend, unit tests, and cloud deployment.
 
 **Live demo:** https://research-agent-rag-ko8d.onrender.com
 
@@ -8,13 +8,26 @@ A retrieval-augmented generation (RAG) system that answers questions about a cor
 
 Ask a natural-language question → the system embeds it, retrieves the most relevant chunks from a vector database of ~900 paper chunks, and uses an LLM to generate an answer grounded *only* in those chunks, with inline `[Source N]` citations.
 
-## How it works
+It offers two pipelines:
+- **`/ask`** — fast single-shot RAG (retrieve once, answer)
+- **`/ask-agent`** — agentic RAG that decomposes the question, retrieves per sub-question, generates an answer, and runs a critic pass to check the answer against its sources
+
+## How the core pipeline works
 
 1. **Ingest** — pulls papers from the arXiv API and extracts full text from the PDFs
 2. **Chunk** — splits papers into semantic chunks (sentence-boundary aware), then filters out low-value content: reference lists, mangled tables/figures, and title-page headers
 3. **Embed & store** — embeds chunks with `all-MiniLM-L6-v2` and stores them in a Chroma vector database
 4. **Retrieve** — embeds the question and finds the nearest chunks by cosine distance
 5. **Generate** — passes retrieved chunks to Google Gemini with a grounding prompt that forbids answering beyond the sources
+
+## Agentic pipeline (`/ask-agent`)
+
+Wraps the core pipeline with two extra LLM-powered stages, addressing two real RAG weaknesses:
+
+- **Query decomposition** — a complex question ("compare X and Y and say which is better for Z") is broken into focused sub-questions, each retrieved separately for better coverage than a single blurry query
+- **Critic / verifier** — after the answer is drafted, a second LLM pass checks each claim against the retrieved sources and reports whether the answer is fully supported, flagging any unsupported claims
+
+Both stages degrade gracefully: if the LLM returns malformed output, the pipeline falls back to sensible defaults rather than failing.
 
 ## Retrieval-quality engineering
 
@@ -27,6 +40,7 @@ Naive RAG retrieved a lot of junk (author names, emails, bibliography entries) t
 - **Retry with exponential backoff** — transient LLM failures retried automatically (tenacity)
 - **Rate limiting** — a custom per-IP sliding-window limiter caps requests to control cost/abuse
 - **Graceful error handling** — distinguishes quota exhaustion (429) from transient unavailability (503)
+- **Unit tests** — 16 tests covering chunking, junk-filtering, and the agent's parsing/fallback logic (run with `pytest`)
 
 ## Stack
 
@@ -37,7 +51,8 @@ FastAPI · Chroma · sentence-transformers · Google Gemini · Docker · Render
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/` | GET | Web frontend |
-| `/ask` | POST | Ask a question, get a cited answer |
+| `/ask` | POST | Single-shot RAG: ask a question, get a cited answer |
+| `/ask-agent` | POST | Agentic RAG: decomposition + multi-retrieval + critique |
 | `/health` | GET | Liveness check |
 | `/docs` | GET | Interactive API documentation |
 
@@ -51,6 +66,12 @@ uvicorn api:app --reload
 ```
 
 Then open http://localhost:8000
+
+## Running the tests
+
+```bash
+python -m pytest tests/ -v
+```
 
 ## Running with Docker
 
