@@ -7,3 +7,4 @@ google-genai
 fastapi
 uvicorn[standard]
 tenacity
+python-dotenv
