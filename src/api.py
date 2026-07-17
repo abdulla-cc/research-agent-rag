@@ -7,6 +7,7 @@ import os as _os
 from pydantic import BaseModel, Field
 
 from rag import answer_question, LLMUnavailableError, QuotaExceededError
+from agent import answer_question_agentic
 from logging_config import logger
 
 app = FastAPI(
@@ -54,6 +55,19 @@ class Source(BaseModel):
 class AskResponse(BaseModel):
     query: str
     answer: str
+    sources: list[Source]
+
+
+class Verification(BaseModel):
+    supported: bool | None
+    notes: str
+
+
+class AgentResponse(BaseModel):
+    query: str
+    sub_questions: list[str]
+    answer: str
+    verification: Verification
     sources: list[Source]
 
 
@@ -109,4 +123,38 @@ def ask(request: Request, body: AskRequest):
     except Exception as e:
         elapsed = time.time() - start
         logger.error(f"ASK failed in {elapsed:.2f}s: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {e}")
+
+
+@app.post("/ask-agent", response_model=AgentResponse)
+def ask_agent(request: Request, body: AskRequest):
+    """Agentic RAG: decomposes the question, retrieves per sub-question,
+    generates a cited answer, and critiques it against the sources.
+    Rate limited per IP (shares the app-wide limiter)."""
+    client_ip = request.client.host
+    if not check_rate_limit(client_ip):
+        logger.warning(f"RATE LIMITED (agent): {client_ip}")
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: max {RATE_LIMIT} requests per {RATE_WINDOW}s.",
+        )
+
+    start = time.time()
+    logger.info(f"ASK-AGENT received: {body.question!r}")
+    try:
+        result = answer_question_agentic(body.question)
+        elapsed = time.time() - start
+        logger.info(f"ASK-AGENT ok in {elapsed:.2f}s: {body.question!r}")
+        return result
+    except QuotaExceededError as e:
+        elapsed = time.time() - start
+        logger.warning(f"ASK-AGENT quota-exceeded in {elapsed:.2f}s: {e}")
+        raise HTTPException(status_code=429, detail="Daily request quota reached. Please try again later.")
+    except LLMUnavailableError as e:
+        elapsed = time.time() - start
+        logger.warning(f"ASK-AGENT llm-unavailable in {elapsed:.2f}s: {e}")
+        raise HTTPException(status_code=503, detail="The language model is temporarily busy. Please try again in a moment.")
+    except Exception as e:
+        elapsed = time.time() - start
+        logger.error(f"ASK-AGENT failed in {elapsed:.2f}s: {e}")
         raise HTTPException(status_code=500, detail=f"Internal error: {e}")
