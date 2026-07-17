@@ -9,3 +9,4 @@ uvicorn[standard]
 tenacity
 python-dotenv
 pytest
+groq

@@ -1,11 +1,11 @@
 import os
 import chromadb
 from sentence_transformers import SentenceTransformer
-from google import genai
+from groq import Groq
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-load_dotenv()  # reads .env, makes GEMINI_API_KEY available
+load_dotenv()  # reads .env, makes GROQ_API_KEY available
 
 # anchor paths to the project root (parent of this src/ folder) so
 # the code works no matter which directory you launch it from
@@ -14,7 +14,7 @@ _PROJECT_ROOT = os.path.dirname(_HERE)
 DB_DIR = os.path.join(_PROJECT_ROOT, "data", "chroma")
 COLLECTION_NAME = "papers"
 EMBED_MODEL = "all-MiniLM-L6-v2"
-LLM_MODEL = "gemini-2.0-flash"
+LLM_MODEL = "llama-3.1-8b-instant"
 TOP_K = 5
 
 
@@ -31,7 +31,7 @@ class QuotaExceededError(Exception):
 _embedder = SentenceTransformer(EMBED_MODEL)
 _chroma = chromadb.PersistentClient(path=DB_DIR)
 _collection = _chroma.get_collection(COLLECTION_NAME)
-_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+_client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
 
 
 def retrieve(query, k=TOP_K):
@@ -77,13 +77,13 @@ ANSWER:"""
     reraise=True,
 )
 def _call_llm(prompt):
-    """Call Gemini with automatic retries on transient failures.
+    """Call the LLM with automatic retries on transient failures.
     Retries up to 3 times with exponential backoff (2s, 4s, ...)."""
-    response = _client.models.generate_content(
+    response = _client.chat.completions.create(
         model=LLM_MODEL,
-        contents=prompt,
+        messages=[{"role": "user", "content": prompt}],
     )
-    return response.text
+    return response.choices[0].message.content
 
 
 def answer_question(query, k=TOP_K):
