@@ -14,12 +14,17 @@ _PROJECT_ROOT = os.path.dirname(_HERE)
 DB_DIR = os.path.join(_PROJECT_ROOT, "data", "chroma")
 COLLECTION_NAME = "papers"
 EMBED_MODEL = "all-MiniLM-L6-v2"
-LLM_MODEL = "gemini-3.5-flash"
+LLM_MODEL = "gemini-2.0-flash"
 TOP_K = 5
 
 
 class LLMUnavailableError(Exception):
     """Raised when the LLM provider is temporarily unavailable (e.g. 503)."""
+    pass
+
+
+class QuotaExceededError(Exception):
+    """Raised when the API quota is exhausted (429 RESOURCE_EXHAUSTED)."""
     pass
 
 # load these ONCE at import, not per-request (expensive to load)
@@ -90,8 +95,12 @@ def answer_question(query, k=TOP_K):
     try:
         answer = _call_llm(prompt)  # retries transient failures automatically
     except Exception as e:
-        # after all retries exhausted, surface a clean, catchable error
-        raise LLMUnavailableError(str(e))
+        msg = str(e)
+        # 429 = quota exhausted (needs to wait for reset), distinct from
+        # a transient 503 (busy, retry shortly)
+        if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
+            raise QuotaExceededError(msg)
+        raise LLMUnavailableError(msg)
 
     return {
         "query": query,

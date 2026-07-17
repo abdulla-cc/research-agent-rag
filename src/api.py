@@ -2,9 +2,11 @@ import time
 from collections import defaultdict, deque
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
+import os as _os
 from pydantic import BaseModel, Field
 
-from rag import answer_question, LLMUnavailableError
+from rag import answer_question, LLMUnavailableError, QuotaExceededError
 from logging_config import logger
 
 app = FastAPI(
@@ -55,6 +57,15 @@ class AskResponse(BaseModel):
     sources: list[Source]
 
 
+_STATIC_DIR = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "static")
+
+
+@app.get("/")
+def home():
+    """Serve the simple web frontend."""
+    return FileResponse(_os.path.join(_STATIC_DIR, "index.html"))
+
+
 @app.get("/health")
 def health():
     """Simple liveness check — real services always have one of these."""
@@ -81,6 +92,13 @@ def ask(request: Request, body: AskRequest):
         elapsed = time.time() - start
         logger.info(f"ASK ok in {elapsed:.2f}s: {body.question!r}")
         return result
+    except QuotaExceededError as e:
+        elapsed = time.time() - start
+        logger.warning(f"ASK quota-exceeded in {elapsed:.2f}s: {e}")
+        raise HTTPException(
+            status_code=429,
+            detail="Daily request quota reached. Please try again later.",
+        )
     except LLMUnavailableError as e:
         elapsed = time.time() - start
         logger.warning(f"ASK llm-unavailable in {elapsed:.2f}s: {e}")
